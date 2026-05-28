@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PillApp.Api.Data;
 using PillApp.Api.Dtos;
+using Microsoft.AspNetCore.Authorization;
 
 namespace PillApp.Api.Controllers;
 
@@ -76,6 +77,7 @@ public class FarmaciController : ControllerBase
     }
 
     [HttpGet("test-connessione")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<ActionResult<object>> TestConnessione()
     {
         var count = await _db.FarmaciClasseA.CountAsync();
