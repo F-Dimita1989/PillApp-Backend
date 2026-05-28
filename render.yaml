@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: pillapp-api
+    runtime: dotnet
+    rootDir: PillAppBackend/PillApp.Api
+    buildCommand: dotnet build PillApp.Api.csproj
+    startCommand: dotnet PillApp.Api.dll --urls http://0.0.0.0:$PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ConnectionStrings__SupabaseDb
+        sync: false
+      - key: Security__JwtIssuer
+        sync: false
+      - key: Security__JwtAudience
+        sync: false
+      - key: Security__JwtSigningKey
+        sync: false
+      - key: Security__AdminUsername
+        sync: false
+      - key: Security__AdminPassword
+        sync: false
+      - key: Security__AdminRole
+        value: admin
