@@ -143,6 +143,22 @@ app.MapGet("/health", () => Results.Ok(new
     service = "PillApp.Api"
 }));
 
+app.MapGet("/keepalive-db", async (AppDbContext db) =>
+{
+    var canConnect = await db.Database.CanConnectAsync();
+
+    if (!canConnect)
+    {
+        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    return Results.Ok(new
+    {
+        status = "ok",
+        database = "reachable"
+    });
+});
+
 app.MapControllers();
 
 app.Run();

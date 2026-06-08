@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("PillApp.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6b2d20ff3df68108cc70b0423faa99a321ec44cc")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+94064bb70a8f17cf0ce8ef532ef8b3ab13bc906e")]
 [assembly: System.Reflection.AssemblyProductAttribute("PillApp.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("PillApp.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

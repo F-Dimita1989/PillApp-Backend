@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "2V4cRvPB0EA=",
+  "dgSpecHash": "uY1v9qFPiPQ=",
   "success": true,
-  "projectFilePath": "c:\\Users\\A753apulia\\Desktop\\PillApp_BackEnd\\PillAppBackend\\PillApp.Api\\PillApp.Api.csproj",
+  "projectFilePath": "C:\\Users\\A753apulia\\Desktop\\PillApp_BackEnd\\PillAppBackend\\PillApp.Api\\PillApp.Api.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\A753apulia\\.nuget\\packages\\azure.core\\1.47.1\\azure.core.1.47.1.nupkg.sha512",
     "C:\\Users\\A753apulia\\.nuget\\packages\\azure.identity\\1.14.2\\azure.identity.1.14.2.nupkg.sha512",

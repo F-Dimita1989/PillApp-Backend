@@ -1,0 +1,17 @@
+name: Keep Supabase Warm
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping keepalive endpoint
+        env:
+          BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+        run: |
+          set -e
+          curl --fail --silent --show-error "$BACKEND_BASE_URL/keepalive-db"
