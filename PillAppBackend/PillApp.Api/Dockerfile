@@ -9,10 +9,9 @@ RUN dotnet publish PillApp.Api.csproj -c Release -o /app/publish /p:UseAppHost=f
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
-EXPOSE 8080
-
-ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
+EXPOSE 8080
+
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "PillApp.Api.dll"]
+ENTRYPOINT ["sh", "-c", "dotnet PillApp.Api.dll --urls http://0.0.0.0:${PORT:-8080}"]
