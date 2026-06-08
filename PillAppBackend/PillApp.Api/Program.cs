@@ -17,6 +17,7 @@ var jwtIssuer = builder.Configuration["Security:JwtIssuer"];
 var jwtAudience = builder.Configuration["Security:JwtAudience"];
 var jwtSigningKey = builder.Configuration["Security:JwtSigningKey"];
 var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
+var keepaliveSecret = builder.Configuration["Security:KeepaliveSecret"];
 
 if (string.IsNullOrWhiteSpace(jwtIssuer) || string.IsNullOrWhiteSpace(jwtAudience) || string.IsNullOrWhiteSpace(jwtSigningKey))
 {
@@ -26,6 +27,11 @@ if (string.IsNullOrWhiteSpace(jwtIssuer) || string.IsNullOrWhiteSpace(jwtAudienc
 if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminUsername"]) || string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminPassword"]))
 {
     throw new InvalidOperationException("Missing admin login configuration. Set Security__AdminUsername and Security__AdminPassword.");
+}
+
+if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(keepaliveSecret))
+{
+    throw new InvalidOperationException("Missing keepalive configuration. Set Security__KeepaliveSecret.");
 }
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -143,8 +149,16 @@ app.MapGet("/health", () => Results.Ok(new
     service = "PillApp.Api"
 }));
 
-app.MapGet("/keepalive-db", async (AppDbContext db) =>
+app.MapGet("/keepalive-db", async (HttpRequest request, AppDbContext db) =>
 {
+    if (!string.IsNullOrWhiteSpace(keepaliveSecret))
+    {
+        if (!request.Headers.TryGetValue("X-KEEPALIVE", out var incomingSecret) || incomingSecret != keepaliveSecret)
+        {
+            return Results.Unauthorized();
+        }
+    }
+
     var canConnect = await db.Database.CanConnectAsync();
 
     if (!canConnect)
