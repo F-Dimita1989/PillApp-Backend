@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using PillApp.Api.Data;
-using PillApp.Api.DrugImages;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -112,8 +111,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("SupabaseDb")));
-
-builder.Services.AddDrugImageService(builder.Configuration);
 
 var app = builder.Build();
 
