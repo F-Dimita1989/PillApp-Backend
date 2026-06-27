@@ -19,19 +19,25 @@ var jwtSigningKey = builder.Configuration["Security:JwtSigningKey"];
 var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
 var keepaliveSecret = builder.Configuration["Security:KeepaliveSecret"];
 
-if (string.IsNullOrWhiteSpace(jwtIssuer) || string.IsNullOrWhiteSpace(jwtAudience) || string.IsNullOrWhiteSpace(jwtSigningKey))
+if (string.IsNullOrWhiteSpace(jwtIssuer) ||
+    string.IsNullOrWhiteSpace(jwtAudience) ||
+    string.IsNullOrWhiteSpace(jwtSigningKey))
 {
-    throw new InvalidOperationException("Missing JWT configuration. Set Security__JwtIssuer, Security__JwtAudience and Security__JwtSigningKey.");
+    throw new InvalidOperationException(
+        "Missing JWT configuration. Set Security__JwtIssuer, Security__JwtAudience and Security__JwtSigningKey.");
 }
 
-if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminUsername"]) || string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminPassword"]))
+if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminUsername"]) ||
+    string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminPassword"]))
 {
-    throw new InvalidOperationException("Missing admin login configuration. Set Security__AdminUsername and Security__AdminPassword.");
+    throw new InvalidOperationException(
+        "Missing admin login configuration. Set Security__AdminUsername and Security__AdminPassword.");
 }
 
 if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(keepaliveSecret))
 {
-    throw new InvalidOperationException("Missing keepalive configuration. Set Security__KeepaliveSecret in non-development environments.");
+    throw new InvalidOperationException(
+        "Missing keepalive configuration. Set Security__KeepaliveSecret in non-development environments.");
 }
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -68,19 +74,20 @@ builder.Services.AddCors(options =>
         if (builder.Environment.IsDevelopment())
         {
             policy.AllowAnyOrigin()
-                .AllowAnyHeader()
-                .AllowAnyMethod();
-
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
             return;
         }
 
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+        var allowedOrigins = builder.Configuration
+            .GetSection("Cors:AllowedOrigins")
+            .Get<string[]>() ?? [];
 
         if (allowedOrigins.Length > 0)
         {
             policy.WithOrigins(allowedOrigins)
-                .AllowAnyHeader()
-                .AllowAnyMethod();
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
         }
     });
 });
@@ -114,18 +121,17 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-app.UseForwardedHeaders();
-
 if (!app.Environment.IsDevelopment())
 {
     app.UseHsts();
-    app.UseHttpsRedirection();
 }
 
 app.Use(async (context, next) =>
@@ -153,7 +159,8 @@ app.MapGet("/keepalive-db", async (HttpRequest request, AppDbContext db) =>
 {
     if (!string.IsNullOrWhiteSpace(keepaliveSecret))
     {
-        if (!request.Headers.TryGetValue("X-KEEPALIVE", out var incomingSecret) || incomingSecret != keepaliveSecret)
+        if (!request.Headers.TryGetValue("X-KEEPALIVE", out var incomingSecret) ||
+            incomingSecret != keepaliveSecret)
         {
             return Results.Unauthorized();
         }
