@@ -149,11 +149,43 @@ app.UseCors("ConfiguredOrigins");
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.MapGet("/", () => Results.Ok(new
+{
+    message = "PillApp API online",
+    service = "PillApp.Api",
+    endpoints = new
+    {
+        health = "/health",
+        database = "/health/db"
+    }
+}));
+
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
-    service = "PillApp.Api"
+    service = "PillApp.Api",
+    uptime = "alive"
 }));
+
+app.MapGet("/health/db", async (AppDbContext db) =>
+{
+    var canConnect = await db.Database.CanConnectAsync();
+
+    if (!canConnect)
+    {
+        return Results.Problem(
+            title: "Database unreachable",
+            detail: "The application is running but the database connection is not available.",
+            statusCode: StatusCodes.Status503ServiceUnavailable);
+    }
+
+    return Results.Ok(new
+    {
+        status = "ok",
+        service = "PillApp.Api",
+        database = "reachable"
+    });
+});
 
 app.MapGet("/keepalive-db", async (HttpRequest request, AppDbContext db) =>
 {
