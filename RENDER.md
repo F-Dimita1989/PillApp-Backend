@@ -41,4 +41,4 @@ Notes:
 - Render sits behind a proxy, so forwarded headers and HTTPS redirection are already handled in the app.
 - The public `/health` endpoint is meant for Render checks and does not expose sensitive data.
 - If you want a free keepalive for Supabase, use a GitHub Actions schedule to call `/keepalive-db` instead of Render Cron.
-- Set `BACKEND_BASE_URL` as a GitHub repository secret to the public Render URL, then ping `https://your-app.onrender.com/keepalive-db` from the workflow.
+- Set `BACKEND_BASE_URL` as a GitHub repository secret to the public Render URL, set `Security__KeepaliveSecret` in Render, then ping `https://your-app.onrender.com/keepalive-db` from the workflow.

@@ -21,7 +21,7 @@ public class FarmaciController : ControllerBase
     public async Task<ActionResult<FarmacoLookupDto>> GetByAic(string aic)
     {
         if (string.IsNullOrWhiteSpace(aic))
-            return BadRequest("AIC non valido.");
+            return BadRequest(new { error = "Invalid AIC code." });
 
         var farmaco = await _db.FarmaciClasseA
             .AsNoTracking()
@@ -41,7 +41,7 @@ public class FarmaciController : ControllerBase
             .FirstOrDefaultAsync();
 
         if (farmaco == null)
-            return NotFound(new { messaggio = $"Nessun farmaco trovato per AIC {aic}" });
+            return NotFound(new { error = $"No drug found for AIC {aic}." });
 
         return Ok(farmaco);
     }
@@ -50,7 +50,8 @@ public class FarmaciController : ControllerBase
     public async Task<ActionResult<IEnumerable<FarmacoLookupDto>>> Search([FromQuery] string q)
     {
         if (string.IsNullOrWhiteSpace(q))
-            return BadRequest("Inserisci un termine di ricerca.");
+            return BadRequest(new { error = "Search term is required." });
+
 
         var result = await _db.FarmaciClasseA
             .AsNoTracking()
@@ -84,8 +85,9 @@ public class FarmaciController : ControllerBase
 
         return Ok(new
         {
-            messaggio = "Connessione al database riuscita",
-            totaleRecord = count
+            message = "Database connection successful.",
+            totalRecords = count
         });
     }
+
 }

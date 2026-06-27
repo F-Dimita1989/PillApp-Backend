@@ -31,7 +31,7 @@ if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminUsername"]) |
 
 if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(keepaliveSecret))
 {
-    Console.WriteLine("Warning: missing keepalive configuration. Set Security__KeepaliveSecret to protect /keepalive-db.");
+    throw new InvalidOperationException("Missing keepalive configuration. Set Security__KeepaliveSecret in non-development environments.");
 }
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

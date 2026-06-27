@@ -23,7 +23,7 @@ public class AuthController : ControllerBase
     public ActionResult<AdminLoginResponseDto> Login([FromBody] AdminLoginRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
-            return BadRequest("Username e password sono obbligatori.");
+            return BadRequest(new { error = "Username and password are required." });
 
         var adminUsername = _configuration["Security:AdminUsername"];
         var adminPassword = _configuration["Security:AdminPassword"];
@@ -33,10 +33,11 @@ public class AuthController : ControllerBase
         var adminRole = _configuration["Security:AdminRole"] ?? "admin";
 
         if (string.IsNullOrWhiteSpace(adminUsername) || string.IsNullOrWhiteSpace(adminPassword))
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Configurazione admin mancante.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "Admin configuration is missing." });
 
         if (string.IsNullOrWhiteSpace(jwtIssuer) || string.IsNullOrWhiteSpace(jwtAudience) || string.IsNullOrWhiteSpace(jwtSigningKey))
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Configurazione JWT mancante.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new { error = "JWT configuration is missing." });
+
 
         var userMatches = FixedTimeEquals(adminUsername, request.Username);
         var passwordMatches = FixedTimeEquals(adminPassword, request.Password);

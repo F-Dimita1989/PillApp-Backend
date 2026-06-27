@@ -49,7 +49,7 @@ Variabili di ambiente / impostazioni (consigliate come secrets su hosting):
 - CORS: `Cors:AllowedOrigins` (array di origini per produzione)
 
 Note di sicurezza:
-- L'endpoint `/keepalive-db` dovrebbe essere protetto con un header segreto o con autenticazione, per evitare chiamate pubbliche/abusive. Si consiglia di usare un header custom controllato tramite variabile d'ambiente (es. `KEEPALIVE_SECRET`).
+- L'endpoint `/keepalive-db` è protetto con un header segreto e, fuori da Development, il secret è obbligatorio all'avvio. Si usa un header custom controllato tramite variabile d'ambiente (es. `KEEPALIVE_SECRET`).
 - Non includere chiavi o password nei file di configurazione del repo. Usa GitHub Secrets / Render environment variables.
 
 Keepalive: evitare che Supabase si sospenda
