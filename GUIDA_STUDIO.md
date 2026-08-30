@@ -747,7 +747,24 @@ WHERE t.relname = 'farmaci_classe_a'
 ORDER BY pg_relation_size(c.oid) DESC;
 ```
 
-`idx_scan` conta quante volte il planner ha effettivamente scelto quell'indice: un valore fermo a zero, su un database in funzione da tempo, dice che l'indice non sta servendo a niente.
+`idx_scan` conta quante volte il planner ha effettivamente scelto quell'indice. Va però letto con prudenza: uno zero può significare "inutile" oppure semplicemente "nessuna query di quel tipo è ancora passata". Su questo database gli indici trigram erano tutti a zero mentre l'indice su `aic` registrava 74 letture, e la spiegazione era che il frontend aveva fatto lookup ma non ancora ricerche testuali.
+
+La prova definitiva è il **piano di esecuzione**, che dice cosa il database fa davvero:
+
+```sql
+EXPLAIN ANALYZE
+SELECT aic, principio_attivo, denominazione_confezione
+FROM farmaci_classe_a
+WHERE principio_attivo ILIKE '%paracetamolo%'
+   OR denominazione_confezione ILIKE '%paracetamolo%'
+   OR descrizione_gruppo ILIKE '%paracetamolo%'
+ORDER BY denominazione_confezione, aic
+LIMIT 20;
+```
+
+Su questa tabella il piano mostra tre `Bitmap Index Scan`, uno per indice trigram, uniti da un `BitmapOr`, e conclude in circa 7 millisecondi leggendo cinque blocchi. Gli indici trigram servono, quindi.
+
+Due cose interessanti nello stesso piano. L'ordinamento viene risolto con `Sort Method: quicksort` in memoria, non passando dall'indice su `(denominazione_confezione, aic)`: con quattordici righe da ordinare è la scelta giusta, e quell'indice diventa utile solo per termini poco selettivi che producono molti risultati. E il tempo di pianificazione (25 ms) supera quello di esecuzione (7 ms), cosa normale alla prima esecuzione e un argomento in più a favore della cache applicativa, che risparmia entrambi.
 
 Ci sono tre modi tipici in cui un indice diventa inutile, e in questa tabella si sono presentati tutti e tre.
 

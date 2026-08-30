@@ -50,9 +50,13 @@ ORDER BY pg_relation_size(c.oid) DESC;
 -- ---------------------------------------------------------------------------
 -- PASSO 3 — Ordinamento della ricerca
 -- ---------------------------------------------------------------------------
--- Corrisponde a ORDER BY denominazione_confezione, aic. Con un indice già
--- ordinato su quelle due colonne il database non deve ordinare in memoria a
--- ogni richiesta.
+-- Corrisponde a ORDER BY denominazione_confezione, aic.
+--
+-- Utilità da verificare: con un termine selettivo il filtro trigram restituisce
+-- poche righe e il planner le ordina in memoria (quicksort), ignorando questo
+-- indice. Paga solo nello scenario opposto, quando il termine corrisponde a
+-- molte righe e conviene scorrere un indice già ordinato fermandosi al LIMIT.
+-- Vedi il PASSO 6.
 
 CREATE INDEX IF NOT EXISTS idx_farmaci_classe_a_denominazione_ordinamento
     ON farmaci_classe_a (denominazione_confezione, aic);
@@ -107,15 +111,16 @@ DROP INDEX IF EXISTS idx_farmaci_classe_a_codice_gruppo_equivalenza;
 -- senza che questo li renda superflui.
 
 -- ---------------------------------------------------------------------------
--- PASSO 6 — Verificare che gli indici trigram vengano davvero usati
+-- PASSO 6 — Verificare quali indici il planner sceglie davvero
 -- ---------------------------------------------------------------------------
--- La query di ricerca ha tre condizioni in OR su tre colonne: il planner deve
--- combinare tre scansioni di indice, e su una tabella di queste dimensioni può
--- preferire la scansione completa. In quel caso i tre indici GIN occupano
--- spazio senza dare nulla in cambio.
---
--- Se nel piano compaiono Bitmap Index Scan sugli indici *_trgm stanno
--- lavorando; se compare Seq Scan on farmaci_classe_a, no.
+-- Un indice esiste solo in funzione di una query: il modo per saperlo è leggere
+-- il piano di esecuzione, non fidarsi del ragionamento.
+
+-- 6a. Termine selettivo.
+-- Verificato: il planner usa tutti e tre gli indici trigram combinati con
+-- BitmapOr (nessun Seq Scan), legge 5 blocchi e conclude in circa 7 ms.
+-- L'ORDER BY viene risolto in memoria con quicksort su poche righe, quindi
+-- idx_farmaci_classe_a_denominazione_ordinamento NON viene usato qui.
 
 EXPLAIN ANALYZE
 SELECT aic, principio_attivo, denominazione_confezione
@@ -125,3 +130,22 @@ WHERE principio_attivo ILIKE '%paracetamolo%'
    OR descrizione_gruppo ILIKE '%paracetamolo%'
 ORDER BY denominazione_confezione, aic
 LIMIT 20;
+
+-- 6b. Termine generico, che corrisponde a molte righe.
+-- È lo scenario in cui l'indice di ordinamento può pagare: se il piano mostra
+-- Index Scan on idx_farmaci_classe_a_denominazione_ordinamento va tenuto; se
+-- mostra ancora un Sort con quicksort si può rimuovere.
+
+EXPLAIN ANALYZE
+SELECT aic, principio_attivo, denominazione_confezione
+FROM farmaci_classe_a
+WHERE principio_attivo ILIKE '%compresse%'
+   OR denominazione_confezione ILIKE '%compresse%'
+   OR descrizione_gruppo ILIKE '%compresse%'
+ORDER BY denominazione_confezione, aic
+LIMIT 20;
+
+-- Nota sulle stime: il planner prevedeva 2 righe e ne ha trovate 14. Le stime
+-- di selettività su ILIKE '%...%' sono strutturalmente approssimative, quindi
+-- su termini molto generici la scelta del piano può cambiare in modo poco
+-- prevedibile. È un'altra ragione per misurare invece di dedurre.
