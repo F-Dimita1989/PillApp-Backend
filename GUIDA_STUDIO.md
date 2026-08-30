@@ -686,18 +686,26 @@ La conseguenza pratica è che se qualcuno cambia una colonna su Supabase senza a
 
 Questa sezione è breve ma è tra le più importanti: **senza gli indici giusti, il codice descritto finora funziona ma è lentissimo**.
 
-Un indice è una struttura che permette al database di trovare le righe senza leggere l'intera tabella, come l'indice analitico di un libro. Il file `scripts/create-search-indexes.sql` ne crea tre gruppi, da eseguire una volta nel SQL Editor di Supabase.
+Un indice è una struttura che permette al database di trovare le righe senza leggere l'intera tabella, come l'indice analitico di un libro. Il file `scripts/create-search-indexes.sql` contiene quello che serve, da eseguire nel SQL Editor di Supabase.
 
-### 1. L'indice su `aic`
+Il principio guida è che **un indice va giustificato da una query**. L'API esegue due sole query, quindi la lista degli indici utili è corta e tutto il resto è peso morto: occupa spazio (500 MB in totale sul piano gratuito) e va riscritto a ogni modifica dei dati.
+
+### 1. L'indice su `aic`: quello che non va creato
+
+`GET /api/farmaci/{aic}` ha bisogno di un indice su `aic`, altrimenti ogni lookup legge tutte le righe della tabella per trovarne una. Ma su questo database **non va creato nulla**, e il motivo è una regola di PostgreSQL che vale la pena conoscere.
+
+Quando una colonna ha un vincolo `UNIQUE`, PostgreSQL crea automaticamente un indice per farlo rispettare: non ha altro modo di verificare l'unicità in modo efficiente a ogni inserimento. Quell'indice, che nella nostra tabella si chiama `farmaci_classe_a_aic_key`, è un indice a tutti gli effetti e il planner lo usa per le ricerche.
+
+La conseguenza pratica: **un vincolo `UNIQUE` è già un indice**. Aggiungerne uno esplicito sulla stessa colonna crea un doppione che occupa spazio e va aggiornato a ogni scrittura, senza rendere nulla più veloce.
+
+Il modo per accorgersene è elencare i vincoli della tabella:
 
 ```sql
-CREATE UNIQUE INDEX IF NOT EXISTS idx_farmaci_classe_a_aic
-    ON farmaci_classe_a (aic);
+SELECT conname, contype FROM pg_constraint
+WHERE conrelid = 'farmaci_classe_a'::regclass;
 ```
 
-Serve a `GET /api/farmaci/{aic}`. Senza di esso, ogni singolo lookup legge tutte le righe della tabella per trovarne una. È l'indice con il rapporto beneficio/costo più alto di tutti.
-
-È dichiarato `UNIQUE` perché due farmaci non possono avere lo stesso codice AIC: oltre a rendere la ricerca più efficiente, il vincolo impedisce l'inserimento di duplicati. Se la creazione fallisce significa che in tabella ci sono già codici duplicati, e in fondo al file c'è la query per individuarli.
+Lo stesso vale per la chiave primaria: `farmaci_classe_a_pkey` è l'indice della `PRIMARY KEY` su `id`, e non va né creato né rimosso.
 
 ### 2. L'indice per l'ordinamento
 
@@ -720,6 +728,34 @@ CREATE INDEX IF NOT EXISTS idx_farmaci_classe_a_principio_attivo_trgm
 Gli indici normali non aiutano una ricerca del tipo `ILIKE '%termine%'`, perché non sapendo come inizia il testo cercato non c'è un punto da cui partire. Gli indici **trigram** risolvono il problema spezzando ogni testo in sequenze di tre caratteri e indicizzando quelle: "paracetamolo" diventa `par`, `ara`, `rac`, `ace`, e così via.
 
 Da qui viene il minimo di tre caratteri imposto dall'API: con meno di tre caratteri non c'è nessun trigramma da cercare e l'indice è inutilizzabile. La regola nel controller e la struttura dell'indice sono due facce della stessa decisione tecnica.
+
+### 4. Riconoscere gli indici inutili
+
+Gli indici si accumulano: vengono creati "per sicurezza", con nomi diversi in momenti diversi, e nessuno li rimuove più. Questa query mostra tutto quello che serve per decidere:
+
+```sql
+SELECT
+    c.relname AS indice,
+    pg_size_pretty(pg_relation_size(c.oid)) AS dimensione,
+    s.idx_scan AS volte_usato,
+    pg_get_indexdef(c.oid) AS definizione
+FROM pg_class c
+JOIN pg_index x ON x.indexrelid = c.oid
+JOIN pg_class t ON t.oid = x.indrelid
+LEFT JOIN pg_stat_user_indexes s ON s.indexrelid = c.oid
+WHERE t.relname = 'farmaci_classe_a'
+ORDER BY pg_relation_size(c.oid) DESC;
+```
+
+`idx_scan` conta quante volte il planner ha effettivamente scelto quell'indice: un valore fermo a zero, su un database in funzione da tempo, dice che l'indice non sta servendo a niente.
+
+Ci sono tre modi tipici in cui un indice diventa inutile, e in questa tabella si sono presentati tutti e tre.
+
+**Il doppione di un vincolo**: un indice creato a mano su una colonna che ha già un `UNIQUE`, come spiegato sopra.
+
+**Il doppione con un altro nome**: `CREATE INDEX IF NOT EXISTS` controlla il *nome*, non la definizione. Se esiste già un indice trigram su `principio_attivo` chiamato `..._principio_trgm` e ne crei uno chiamato `..._principio_attivo_trgm`, la clausola `IF NOT EXISTS` non se ne accorge e ottieni due indici identici. È il motivo per cui la ricognizione va fatta *prima* di creare.
+
+**Il tipo di indice sbagliato per la query**: un b-tree su `principio_attivo` sembra sensato, ma non può servire a una ricerca `ILIKE '%termine%'`. Un indice esiste in funzione di una query precisa; senza quella query è solo costo.
 
 ---
 
