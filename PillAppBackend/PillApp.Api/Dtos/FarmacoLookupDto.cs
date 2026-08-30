@@ -4,6 +4,7 @@ public class FarmacoLookupDto
 {
     public string Aic { get; set; } = string.Empty;
     public string? PrincipioAttivo { get; set; }
+    public string? DescrizioneGruppo { get; set; }
     public string DenominazioneConfezione { get; set; } = string.Empty;
     public decimal? PrezzoPubblico { get; set; }
     public string? TitolareAic { get; set; }

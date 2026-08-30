@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<FarmacoClasseA>(entity =>
         {
             entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
             entity.HasIndex(e => e.Aic).IsUnique();
         });
     }
