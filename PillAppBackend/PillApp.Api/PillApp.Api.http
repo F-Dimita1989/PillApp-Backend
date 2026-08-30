@@ -1,6 +1,18 @@
 @PillApp.Api_HostAddress = http://localhost:5227
 
-GET {{PillApp.Api_HostAddress}}/weatherforecast/
+### Health check
+GET {{PillApp.Api_HostAddress}}/health
 Accept: application/json
 
-###
+### Ricerca farmaci (paginata, minimo 3 caratteri)
+GET {{PillApp.Api_HostAddress}}/api/farmaci/search?q=paracetamolo&limit=20&offset=0
+Accept: application/json
+
+### Lookup per AIC
+GET {{PillApp.Api_HostAddress}}/api/farmaci/012345678
+Accept: application/json
+
+### Keepalive database (usato dal workflow GitHub Actions)
+GET {{PillApp.Api_HostAddress}}/keepalive-db
+X-KEEPALIVE: local-keepalive-secret
+Accept: application/json

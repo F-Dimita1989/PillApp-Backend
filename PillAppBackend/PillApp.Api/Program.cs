@@ -1,37 +1,23 @@
-using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.RateLimiting;
-using Microsoft.EntityFrameworkCore;
-using PillApp.Api.Data;
-using Microsoft.IdentityModel.Tokens;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.ResponseCompression;
+using Microsoft.EntityFrameworkCore;
+using PillApp.Api.Data;
+using PillApp.Api.Infrastructure;
+using PillApp.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
-
-var jwtIssuer = builder.Configuration["Security:JwtIssuer"];
-var jwtAudience = builder.Configuration["Security:JwtAudience"];
-var jwtSigningKey = builder.Configuration["Security:JwtSigningKey"];
-var adminRole = builder.Configuration["Security:AdminRole"] ?? "admin";
+var connectionString = builder.Configuration.GetConnectionString("SupabaseDb");
 var keepaliveSecret = builder.Configuration["Security:KeepaliveSecret"];
 
-if (string.IsNullOrWhiteSpace(jwtIssuer) ||
-    string.IsNullOrWhiteSpace(jwtAudience) ||
-    string.IsNullOrWhiteSpace(jwtSigningKey))
+if (string.IsNullOrWhiteSpace(connectionString))
 {
     throw new InvalidOperationException(
-        "Missing JWT configuration. Set Security__JwtIssuer, Security__JwtAudience and Security__JwtSigningKey.");
-}
-
-if (string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminUsername"]) ||
-    string.IsNullOrWhiteSpace(builder.Configuration["Security:AdminPassword"]))
-{
-    throw new InvalidOperationException(
-        "Missing admin login configuration. Set Security__AdminUsername and Security__AdminPassword.");
+        "Missing database configuration. Set ConnectionStrings__SupabaseDb.");
 }
 
 if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(keepaliveSecret))
@@ -40,32 +26,26 @@ if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(keepaliveS
         "Missing keepalive configuration. Set Security__KeepaliveSecret in non-development environments.");
 }
 
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidIssuer = jwtIssuer,
-            ValidateAudience = true,
-            ValidAudience = jwtAudience,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSigningKey)),
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromMinutes(2),
-            RoleClaimType = "role"
-        };
-    });
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
-builder.Services.AddAuthorization(options =>
+// Il catalogo AIFA cambia una volta al mese: la cache evita di interrogare Supabase
+// a ogni carattere digitato dall'utente. SizeLimit impedisce che una raffica di
+// termini di ricerca diversi faccia crescere la memoria senza controllo.
+builder.Services.AddMemoryCache(options => options.SizeLimit = 512);
+builder.Services.AddScoped<FarmaciReadService>();
+
+builder.Services.AddResponseCompression(options =>
 {
-    options.AddPolicy("AdminOnly", policy =>
-    {
-        policy.RequireAuthenticatedUser();
-        policy.RequireRole(adminRole);
-    });
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
 });
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
 
 builder.Services.AddCors(options =>
 {
@@ -87,21 +67,31 @@ builder.Services.AddCors(options =>
         {
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyHeader()
-                  .AllowAnyMethod();
+                  .WithMethods("GET");
         }
     });
 });
 
+var permitPerMinute = builder.Configuration.GetValue<int?>("RateLimiting:PermitPerMinute") ?? 300;
+
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter =
+            context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter)
+                ? ((int)retryAfter.TotalSeconds).ToString()
+                : "60";
+        await Task.CompletedTask;
+    };
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
     {
         var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
         return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = 120,
+            PermitLimit = permitPerMinute,
             Window = TimeSpan.FromMinutes(1),
             QueueLimit = 0,
             AutoReplenishment = true
@@ -112,24 +102,28 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // L'IP del proxy di Render non è noto in anticipo. ForwardLimit = 1 fa leggere solo
+    // l'ultimo valore di X-Forwarded-For, quello scritto dal proxy stesso, così un client
+    // non può falsificare il proprio IP per aggirare il rate limiting.
+    options.ForwardLimit = 1;
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("SupabaseDb")));
+builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
 
 var app = builder.Build();
 
+app.UseExceptionHandler();
 app.UseForwardedHeaders();
+app.UseResponseCompression();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
-if (!app.Environment.IsDevelopment())
+else
 {
     app.UseHsts();
 }
@@ -146,8 +140,6 @@ app.Use(async (context, next) =>
 
 app.UseRateLimiter();
 app.UseCors("ConfiguredOrigins");
-app.UseAuthentication();
-app.UseAuthorization();
 
 app.MapGet("/", () => Results.Ok(new
 {
@@ -156,10 +148,13 @@ app.MapGet("/", () => Results.Ok(new
     endpoints = new
     {
         health = "/health",
-        database = "/health/db"
+        search = "/api/farmaci/search?q=",
+        lookup = "/api/farmaci/{aic}"
     }
 }));
 
+// Health check leggero per Render: non tocca il database, così un problema di rete
+// verso Supabase non provoca il riavvio a ciclo continuo del servizio.
 app.MapGet("/health", () => Results.Ok(new
 {
     status = "ok",
@@ -167,32 +162,14 @@ app.MapGet("/health", () => Results.Ok(new
     uptime = "alive"
 }));
 
-app.MapGet("/health/db", async (AppDbContext db) =>
-{
-    var canConnect = await db.Database.CanConnectAsync();
-
-    if (!canConnect)
-    {
-        return Results.Problem(
-            title: "Database unreachable",
-            detail: "The application is running but the database connection is not available.",
-            statusCode: StatusCodes.Status503ServiceUnavailable);
-    }
-
-    return Results.Ok(new
-    {
-        status = "ok",
-        service = "PillApp.Api",
-        database = "reachable"
-    });
-});
-
+// Interrogato dal workflow GitHub Actions per impedire a Supabase di mettere in pausa
+// il progetto dopo 7 giorni di inattività.
 app.MapGet("/keepalive-db", async (HttpRequest request, AppDbContext db) =>
 {
     if (!string.IsNullOrWhiteSpace(keepaliveSecret))
     {
         if (!request.Headers.TryGetValue("X-KEEPALIVE", out var incomingSecret) ||
-            incomingSecret != keepaliveSecret)
+            !FixedTimeEquals(keepaliveSecret, incomingSecret.ToString()))
         {
             return Results.Unauthorized();
         }
@@ -215,3 +192,14 @@ app.MapGet("/keepalive-db", async (HttpRequest request, AppDbContext db) =>
 app.MapControllers();
 
 app.Run();
+
+static bool FixedTimeEquals(string expected, string provided)
+{
+    var expectedBytes = Encoding.UTF8.GetBytes(expected);
+    var providedBytes = Encoding.UTF8.GetBytes(provided);
+
+    return expectedBytes.Length == providedBytes.Length &&
+           CryptographicOperations.FixedTimeEquals(expectedBytes, providedBytes);
+}
+
+public partial class Program;

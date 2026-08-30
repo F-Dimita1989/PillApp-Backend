@@ -7,17 +7,7 @@ services:
     envVars:
       - key: ConnectionStrings__SupabaseDb
         sync: false
-      - key: Security__JwtIssuer
-        sync: false
-      - key: Security__JwtAudience
-        sync: false
-      - key: Security__JwtSigningKey
-        sync: false
-      - key: Security__AdminUsername
-        sync: false
-      - key: Security__AdminPassword
-        sync: false
-      - key: Security__AdminRole
-        value: admin
       - key: Security__KeepaliveSecret
+        sync: false
+      - key: Cors__AllowedOrigins__0
         sync: false
