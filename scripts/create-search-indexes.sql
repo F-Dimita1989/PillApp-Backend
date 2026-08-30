@@ -131,21 +131,44 @@ WHERE principio_attivo ILIKE '%paracetamolo%'
 ORDER BY denominazione_confezione, aic
 LIMIT 20;
 
--- 6b. Termine generico, che corrisponde a molte righe.
--- È lo scenario in cui l'indice di ordinamento può pagare: se il piano mostra
--- Index Scan on idx_farmaci_classe_a_denominazione_ordinamento va tenuto; se
--- mostra ancora un Sort con quicksort si può rimuovere.
+-- 6b. Termine poco selettivo: il caso peggiore.
+-- Serve a due scopi: capire se l'indice di ordinamento viene usato quando le
+-- righe da ordinare sono molte, e se il minimo di 3 caratteri imposto dall'API
+-- basta a evitare ricerche costose.
+--
+-- Attenzione a scegliere il termine: nelle denominazioni AIFA le parole sono
+-- abbreviate (CPR, non "compresse"), quindi un termine dal linguaggio comune
+-- può risultare selettivo e non misurare nulla. Individuare prima i termini
+-- davvero frequenti:
+--
+--   SELECT
+--       (SELECT count(*) FROM farmaci_classe_a) AS righe_totali,
+--       (SELECT count(*) FROM farmaci_classe_a
+--         WHERE denominazione_confezione ILIKE '%cpr%') AS con_cpr,
+--       (SELECT count(*) FROM farmaci_classe_a
+--         WHERE denominazione_confezione ILIKE '%ina%') AS con_ina;
+--
+-- poi sostituire il termine qui sotto con quello più frequente.
 
 EXPLAIN ANALYZE
 SELECT aic, principio_attivo, denominazione_confezione
 FROM farmaci_classe_a
-WHERE principio_attivo ILIKE '%compresse%'
-   OR denominazione_confezione ILIKE '%compresse%'
-   OR descrizione_gruppo ILIKE '%compresse%'
+WHERE principio_attivo ILIKE '%cpr%'
+   OR denominazione_confezione ILIKE '%cpr%'
+   OR descrizione_gruppo ILIKE '%cpr%'
 ORDER BY denominazione_confezione, aic
 LIMIT 20;
 
--- Nota sulle stime: il planner prevedeva 2 righe e ne ha trovate 14. Le stime
--- di selettività su ILIKE '%...%' sono strutturalmente approssimative, quindi
--- su termini molto generici la scelta del piano può cambiare in modo poco
--- prevedibile. È un'altra ragione per misurare invece di dedurre.
+-- Nota sulle stime: il planner prevedeva 2 righe e ne ha trovate 14 nel primo
+-- test. Le stime di selettività su ILIKE '%...%' sono strutturalmente
+-- approssimative, quindi su termini molto frequenti la scelta del piano può
+-- cambiare in modo poco prevedibile. È un'altra ragione per misurare invece di
+-- dedurre.
+
+-- ---------------------------------------------------------------------------
+-- Conclusione su idx_farmaci_classe_a_denominazione_ordinamento
+-- ---------------------------------------------------------------------------
+-- Con termini selettivi il planner lo ignora e ordina in memoria. Si potrebbe
+-- quindi rimuovere, ma occupa 784 kB su una quota di 500 MB (lo 0,16%) e
+-- proteggerebbe il caso peggiore di un termine molto frequente. Il rapporto tra
+-- rischio e beneficio non giustifica la rimozione: si tiene.
