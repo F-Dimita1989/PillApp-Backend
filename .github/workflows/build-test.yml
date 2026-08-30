@@ -5,32 +5,41 @@ on:
     branches: [ main, develop ]
     paths:
       - 'PillAppBackend/**'
+      - 'Directory.Packages.props'
+      - 'PillApp.slnx'
+      - 'Dockerfile'
       - '.github/workflows/build-test.yml'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'PillAppBackend/**'
+      - 'Directory.Packages.props'
+      - 'PillApp.slnx'
+      - 'Dockerfile'
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0'
-      
+
       - name: Restore dependencies
-        run: dotnet restore PillAppBackend/PillApp.Api/PillApp.Api.csproj
-      
-      - name: Build API
-        run: dotnet build PillAppBackend/PillApp.Api/PillApp.Api.csproj -c Release --no-restore
-      
-      - name: Run Tests
-        run: dotnet test PillAppBackend/PillApp.Api.Tests/PillApp.Api.Tests.csproj -c Release --no-build --verbosity normal
-      
+        run: dotnet restore PillApp.slnx
+
+      - name: Check for vulnerable packages
+        run: dotnet list PillApp.slnx package --vulnerable --include-transitive
+
+      - name: Build
+        run: dotnet build PillApp.slnx -c Release --no-restore
+
+      - name: Test
+        run: dotnet test PillApp.slnx -c Release --no-build --verbosity normal
+
       - name: Build Docker Image
         run: docker build -f Dockerfile -t pillapp-backend:latest .
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

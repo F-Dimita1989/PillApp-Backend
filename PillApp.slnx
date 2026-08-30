@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/PillAppBackend/">
+    <Project Path="PillAppBackend/PillApp.Api.Tests/PillApp.Api.Tests.csproj" />
+    <Project Path="PillAppBackend/PillApp.Api/PillApp.Api.csproj" />
+  </Folder>
+</Solution>
