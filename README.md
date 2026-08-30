@@ -3,109 +3,95 @@ PillApp-Backend
 
 Descrizione
 -----------
-Questo repository contiene il backend dell'app PillApp, implementato in ASP.NET Core (.NET 10). Fornisce un'API REST per la ricerca e il lookup di farmaci (classe A) e funzionalità di autenticazione per l'area admin.
+Backend dell'app PillApp, in ASP.NET Core (.NET 10). Espone un'API REST **di sola lettura** per la ricerca e il lookup dei farmaci di classe A. I dati vengono caricati e aggiornati direttamente su Supabase: l'API non ha endpoint di scrittura e non richiede autenticazione.
 
 Funzionalità principali
 -----------------------
-- Endpoint API per lookup farmaci (classe A)
-- Autenticazione JWT per le operazioni amministrative
-- Endpoint di healthcheck e keepalive per mantenere attivo il database (es. Supabase)
-- Accesso ai dati tramite Entity Framework Core con provider Npgsql (Postgres/Supabase)
-- CORS configurabile per ambienti di produzione/dev
-- Rate limiting globale per mitigare abusi (limite di default: 120 richieste/minuto per IP)
-- Intestazioni di sicurezza HTTP impostate in uscita (HSTS in produzione, X-Frame-Options, Referrer-Policy, ecc.)
+- Ricerca paginata dei farmaci per principio attivo, denominazione della confezione e descrizione del gruppo
+- Lookup di un singolo farmaco per codice AIC
+- Cache in memoria dei risultati più header `Cache-Control`, per non interrogare Supabase a ogni carattere digitato
+- Compressione Brotli/Gzip delle risposte
+- Healthcheck e keepalive per impedire a Supabase di sospendere il progetto
+- Accesso ai dati con Entity Framework Core e provider Npgsql
+- CORS configurabile, rate limiting per IP, intestazioni di sicurezza HTTP
+- Gestione centralizzata degli errori con risposte `ProblemDetails`
 
 Architettura e file chiave
 -------------------------
-- PillAppBackend/PillApp.Api/
-  - Program.cs: configurazione dell'applicazione, middleware, routing e definition degli endpoint (health, keepalive-db, controllers)
-  - Controllers/: contiene `AuthController.cs` e `FarmaciController.cs` per le rotte principali
-  - Data/AppDbContext.cs: DbContext EF Core e mapping delle entità
-  - Models/: modelle EF (es. FarmacoClasseA)
-  - Dtos/: DTOs usati per request/response
-  - Dockerfile: immagine per il deploy containerizzato
+- `PillApp.slnx` — solution che raggruppa i due progetti
+- `Directory.Packages.props` — versioni dei pacchetti NuGet, centralizzate
+- `PillAppBackend/PillApp.Api/`
+  - `Program.cs` — configurazione dell'applicazione, middleware, endpoint minimali
+  - `Controllers/FarmaciController.cs` — validazione dell'input e rotte pubbliche
+  - `Services/FarmaciReadService.cs` — query di lettura e cache
+  - `Helpers/FarmacoSearchQuery.cs` — costruzione della ricerca testuale
+  - `Helpers/FarmacoDtoMapper.cs` — proiezione entità → DTO
+  - `Infrastructure/GlobalExceptionHandler.cs` — errori non gestiti
+  - `Data/AppDbContext.cs` — DbContext EF Core
+  - `Models/FarmacoClasseA.cs` — entità mappata sulla tabella `farmaci_classe_a`
+- `PillAppBackend/PillApp.Api.Tests/` — test unitari e di integrazione (xUnit)
+- `scripts/create-search-indexes.sql` — indici richiesti dal database
+- `Dockerfile`, `render.yaml` — deploy containerizzato su Render
 
-Endpoint importanti
+Endpoint
+--------
+| Metodo | Rotta | Descrizione |
+|--------|-------|-------------|
+| GET | `/` | Elenco degli endpoint pubblici |
+| GET | `/health` | Stato dell'applicazione. Non interroga il database, così un problema di rete verso Supabase non provoca il riavvio continuo del servizio su Render |
+| GET | `/keepalive-db` | Verifica la raggiungibilità del database. Richiede l'header `X-KEEPALIVE` |
+| GET | `/api/farmaci/search?q=&limit=&offset=` | Ricerca paginata. `q` richiede almeno 3 caratteri, `limit` va da 1 a 100 (default 20) |
+| GET | `/api/farmaci/{aic}` | Lookup per codice AIC |
+
+Configurazione
+--------------
+Variabili d'ambiente (da impostare come secrets sull'hosting):
+
+| Variabile | Obbligatoria | Descrizione |
+|-----------|--------------|-------------|
+| `ConnectionStrings__SupabaseDb` | sì | Connection string PostgreSQL |
+| `Security__KeepaliveSecret` | sì fuori da Development | Segreto atteso nell'header `X-KEEPALIVE` |
+| `Cors__AllowedOrigins__0` | in produzione | Origine consentita. Aggiungerne altre incrementando l'indice |
+| `Cache__TtlMinutes` | no | Durata della cache in minuti (default 360) |
+| `RateLimiting__PermitPerMinute` | no | Richieste al minuto per IP (default 300) |
+
+L'applicazione non parte se manca la connection string o, fuori da Development, il segreto di keepalive: meglio un errore immediato che un servizio online e non funzionante.
+
+Indici del database
 -------------------
-- GET /health
-  - Restituisce lo stato dell'applicazione
-- GET /keepalive-db
-  - Esegue `db.Database.CanConnectAsync()` per verificare la raggiungibilità del database. Pensato per essere chiamato da uno scheduler (es. GitHub Actions) per mantenere attivo il DB.
-- Controller Admin/Autenticazione
-  - Route per login admin (fornisce JWT) e operazioni protette da ruolo `admin`.
-- Router Farmaci
-  - Endpoint per ricerca/lookup farmaci (AIC, nome, ecc.)
-
-Sicurezza e configurazione
---------------------------
-Variabili di ambiente / impostazioni (consigliate come secrets su hosting):
-- ConnectionStrings: `SupabaseDb` (connection string PostgreSQL)
-- Security__JwtIssuer
-- Security__JwtAudience
-- Security__JwtSigningKey
-- Security__AdminUsername
-- Security__AdminPassword
-- Security__AdminRole (opzionale, default: "admin")
-- CORS: `Cors:AllowedOrigins` (array di origini per produzione)
-
-Note di sicurezza:
-- L'endpoint `/keepalive-db` è protetto con un header segreto e, fuori da Development, il secret è obbligatorio all'avvio. Si usa un header custom controllato tramite variabile d'ambiente (es. `KEEPALIVE_SECRET`).
-- Non includere chiavi o password nei file di configurazione del repo. Usa GitHub Secrets / Render environment variables.
+Prima di andare in produzione eseguire `scripts/create-search-indexes.sql` nel SQL Editor di Supabase. Senza quegli indici il lookup per AIC e la ricerca testuale eseguono scansioni complete della tabella.
 
 Keepalive: evitare che Supabase si sospenda
------------------------------------------
-Strategia adottata nel repository:
-- Workflow GitHub Actions: `.github/workflows/keepalive.yml` esegue una richiesta periodica (cron) all'endpoint `/keepalive-db` per tenere attiva la connessione al DB.
+-------------------------------------------
+Il piano gratuito di Supabase mette in pausa il progetto dopo 7 giorni di inattività. Il workflow `.github/workflows/keepalive.yml` chiama periodicamente `/keepalive-db`, che apre una connessione leggera con `CanConnectAsync()`. Servono due secrets su GitHub: `BACKEND_BASE_URL` e `KEEPALIVE_SECRET`.
 
-Perché funziona
-- `CanConnectAsync()` apre una connessione leggera al DB. Un ping periodico impedisce che il provider (es. Supabase) classifichi il database come inattivo.
-
-Raccomandazioni:
-- Proteggi la route con un header segreto e passa il segreto come GitHub Secret. Esempio curl nel workflow:
-
-  curl --fail --silent --show-error -H "X-KEEPALIVE: ${{ secrets.KEEPALIVE_SECRET }}" "$BACKEND_BASE_URL/keepalive-db"
-
-- Riduci la frequenza della cron se vuoi risparmiare minuti Actions (es. ogni 15-30 minuti). 10 minuti è accettabile ma non sempre necessario.
+Da tenere presente: GitHub disattiva i workflow schedulati nei repository senza commit da 60 giorni, e può ritardare le esecuzioni cron nei momenti di carico.
 
 Esecuzione locale
 -----------------
-Prerequisiti:
-- .NET SDK 8/10 installato
-- Postgres/Supabase accessibile o connection string valida
+Prerequisiti: .NET SDK 10 e una connection string PostgreSQL valida.
 
-Esempi di comandi:
+    dotnet build PillApp.slnx
+    dotnet test PillApp.slnx
+    dotnet run --project PillAppBackend/PillApp.Api/PillApp.Api.csproj
 
-  dotnet build PillAppBackend/PillApp.Api/PillApp.Api.csproj
-  dotnet run --project PillAppBackend/PillApp.Api/PillApp.Api.csproj
+In Development sono attivi Swagger su `/swagger` e CORS aperto a qualsiasi origine.
 
-Impostare le variabili d'ambiente in PowerShell (esempio):
+Per non tenere le credenziali in `appsettings.Development.json`, usare i user secrets:
 
-  $Env:ASPNETCORE_ENVIRONMENT = "Development"
-  $Env:ConnectionStrings__SupabaseDb = "Host=...;Database=...;Username=...;Password=..."
-  $Env:Security__JwtIssuer = "your-issuer"
-  $Env:Security__JwtAudience = "your-audience"
-  $Env:Security__JwtSigningKey = "long-secret-key"
-  $Env:Security__AdminUsername = "admin"
-  $Env:Security__AdminPassword = "strong-password"
+    dotnet user-secrets init --project PillAppBackend/PillApp.Api
+    dotnet user-secrets set "ConnectionStrings:SupabaseDb" "Host=...;Database=...;Username=...;Password=..." --project PillAppBackend/PillApp.Api
+
+Il file `PillAppBackend/PillApp.Api/PillApp.Api.http` contiene richieste pronte da eseguire.
 
 Deploy
 ------
-Opzioni comuni:
-- Render: usare il `render.yaml` e impostare le environment variables in Render dashboard. Il repository include materiale (`render.yaml`, `RENDER.md`) per agevolare il deploy.
-- Docker: esiste un `Dockerfile` per costruire l'immagine del backend; puoi deployare su qualsiasi container registry o PaaS che supporti Docker.
+- **Render**: usare `render.yaml` come blueprint e impostare le tre variabili d'ambiente nella dashboard. Health check su `/health`. Vedi `RENDER.md`.
+- **Docker**: `docker build -f Dockerfile -t pillapp-backend .`. L'immagine ascolta sulla porta indicata da `PORT` (default 8080) e gira con un utente non-root.
 
-CI / Quality
-------------
-- Si consiglia di aggiungere una GitHub Action che esegue `dotnet build` e i test su ogni push e PR. Questo aiuta a prevenire commit che rompono la build.
-
-Pulizia e manutenzione
-----------------------
-- `.gitignore` contiene le regole per escludere `bin/`, `obj/`, file IDE e artifact di compilazione.
-- Alcuni script locali per pulizia/storico (es. git-filter-repo) possono esistere fuori dal repo; non aggiungere strumenti eseguibili non necessari al repository.
-
-Contatti
---------
-Per domande sul deploy o su come impostare i secrets su Render / GitHub Actions, contattare il maintainer del progetto.
+CI
+--
+`.github/workflows/build-test.yml` esegue restore, scansione delle vulnerabilità NuGet, build e test a ogni push e pull request su `main` e `develop`, e costruisce l'immagine Docker sui push in `main`.
 
 Licenza
 -------

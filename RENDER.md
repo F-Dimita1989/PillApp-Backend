@@ -1,44 +1,43 @@
-# Render deployment
+# Deploy su Render
 
-Use `PillAppBackend/PillApp.Api` as the root directory.
+## Configurazione del servizio
 
-Use the Render blueprint in `render.yaml`.
+Il deploy avviene tramite immagine Docker: usare il blueprint `render.yaml` nella root del repository, che punta al `Dockerfile`. Non servono build command né start command, perché sono già definiti nel Dockerfile.
 
-Build command:
+- Health check path: `/health`
+- Porta: l'immagine legge la variabile `PORT` che Render imposta automaticamente
 
-`dotnet build PillApp.Api.csproj`
+## Variabili d'ambiente
 
-Start command:
+| Variabile | Obbligatoria | Note |
+|-----------|--------------|------|
+| `ConnectionStrings__SupabaseDb` | sì | Connection string PostgreSQL di Supabase |
+| `Security__KeepaliveSecret` | sì | Segreto atteso nell'header `X-KEEPALIVE`, deve coincidere con il secret su GitHub |
+| `Cors__AllowedOrigins__0` | solo per client browser | Aggiungere `__1`, `__2` e così via per più origini |
+| `Cache__TtlMinutes` | no | Default 360 |
+| `RateLimiting__PermitPerMinute` | no | Default 300 |
 
-`dotnet PillApp.Api.dll --urls http://0.0.0.0:$PORT`
+Il servizio non parte se manca la connection string o il segreto di keepalive: è voluto, così un errore di configurazione emerge subito invece di produrre un servizio online ma rotto.
 
-Health check path:
+## Nota su React Native
 
-`/health`
+In un'app React Native nativa il CORS del browser non entra in gioco, quindi di norma non serve impostare nessuna origine consentita. Va configurato solo se si usa Expo Web o un'altra anteprima nel browser.
 
-Environment variables:
+In sviluppo locale puntare l'app a un URL raggiungibile: `http://localhost:5227` per il solo desktop, `http://10.0.2.2:5227` per l'emulatore Android, oppure l'IP della LAN per un dispositivo fisico.
 
-- `ConnectionStrings__SupabaseDb`
-- `Security__JwtIssuer`
-- `Security__JwtAudience`
-- `Security__JwtSigningKey`
-- `Security__AdminUsername`
-- `Security__AdminPassword`
-- `Security__AdminRole` if you do not want the default `admin`
-- `Cors__AllowedOrigins__0`, `Cors__AllowedOrigins__1`, ... for the frontend origins
+## Keepalive di Supabase
 
-React Native note:
+Il piano gratuito di Supabase sospende il progetto dopo 7 giorni di inattività. Invece del Render Cron (a pagamento) si usa GitHub Actions:
 
-- For a native React Native app, browser CORS is not a factor, so you usually do not need to set any allowed origins.
-- If you also run Expo Web or another browser-based preview, add its origin to `Cors__AllowedOrigins`.
-- During local development, point the app to a reachable backend URL: `http://localhost:5000` for desktop-only testing, `http://10.0.2.2:5000` for the Android emulator, or your LAN IP for a physical device.
+1. Impostare `Security__KeepaliveSecret` su Render
+2. Impostare su GitHub i secrets `BACKEND_BASE_URL` (l'URL pubblico Render) e `KEEPALIVE_SECRET` (lo stesso valore)
+3. Il workflow `.github/workflows/keepalive.yml` chiama `https://tuo-servizio.onrender.com/keepalive-db` a intervalli regolari
 
-Notes:
+La chiamata tiene sveglio sia il database che il servizio web, evitando anche il cold start del piano gratuito di Render.
 
-- The backend now requires a valid JWT for the admin diagnostics endpoint.
-- Use `POST /api/auth/login` with the admin username and password to obtain the token.
-- The JWT must contain the configured admin role claim.
-- Render sits behind a proxy, so forwarded headers and HTTPS redirection are already handled in the app.
-- The public `/health` endpoint is meant for Render checks and does not expose sensitive data.
-- If you want a free keepalive for Supabase, use a GitHub Actions schedule to call `/keepalive-db` instead of Render Cron.
-- Set `BACKEND_BASE_URL` as a GitHub repository secret to the public Render URL, set `Security__KeepaliveSecret` in Render, then ping `https://your-app.onrender.com/keepalive-db` from the workflow.
+## Altre note
+
+- L'API è di sola lettura e pubblica: non c'è nessun token da configurare né endpoint amministrativi da proteggere
+- Render sta dietro un proxy: l'app è già configurata per leggere gli header inoltrati e ricavare l'IP reale del client, necessario al rate limiting
+- `/health` non interroga il database, per evitare che un problema di rete verso Supabase provochi il riavvio a ciclo continuo del servizio
+- Prima del primo deploy eseguire `scripts/create-search-indexes.sql` su Supabase
