@@ -5,15 +5,17 @@ Descrizione
 -----------
 Backend dell'app PillApp, in ASP.NET Core (.NET 10). Espone un'API REST **di sola lettura** per la ricerca e il lookup dei farmaci di classe A. I dati vengono caricati e aggiornati direttamente su Supabase: l'API non ha endpoint di scrittura e non richiede autenticazione.
 
+Strati: HTTP (controller e endpoint minimali) → servizio di lettura con cache → Entity Framework Core → PostgreSQL.
+
 Funzionalità principali
 -----------------------
 - Ricerca paginata dei farmaci per principio attivo, denominazione della confezione e descrizione del gruppo
 - Lookup di un singolo farmaco per codice AIC
-- Cache in memoria dei risultati più header `Cache-Control`, per non interrogare Supabase a ogni carattere digitato
+- Due livelli di cache: in memoria sul server (TTL configurabile, default 6 ore, massimo 512 voci) e header `Cache-Control: public, max-age=3600` sul client
 - Compressione Brotli/Gzip delle risposte
 - Healthcheck e keepalive per impedire a Supabase di sospendere il progetto
 - Accesso ai dati con Entity Framework Core e provider Npgsql
-- CORS configurabile, rate limiting per IP, intestazioni di sicurezza HTTP
+- CORS configurabile, rate limiting per IP (con IP reale dietro il proxy di Render), intestazioni di sicurezza HTTP
 - Gestione centralizzata degli errori con risposte `ProblemDetails`
 
 Architettura e file chiave
@@ -42,6 +44,20 @@ Endpoint
 | GET | `/keepalive-db` | Verifica la raggiungibilità del database. Richiede l'header `X-KEEPALIVE` |
 | GET | `/api/farmaci/search?q=&limit=&offset=` | Ricerca paginata. `q` richiede almeno 3 caratteri, `limit` va da 1 a 100 (default 20) |
 | GET | `/api/farmaci/{aic}` | Lookup per codice AIC |
+
+`POST`, `PUT` e `DELETE` su `/api/farmaci/...` non sono esposti: la risposta è `404` o `405`.
+
+Codici di stato
+---------------
+| Codice | Quando |
+|--------|--------|
+| 200 | Ricerca o lookup riusciti; health e root ok |
+| 400 | Termine di ricerca assente, troppo corto, `limit`/`offset` non validi, AIC vuoto |
+| 401 | Keepalive senza header o con segreto errato |
+| 404 | Farmaco inesistente |
+| 429 | Superato il limite di richieste per IP |
+| 500 | Errore non gestito (formato ProblemDetails, senza stack trace) |
+| 503 | Keepalive: database irraggiungibile |
 
 Configurazione
 --------------
